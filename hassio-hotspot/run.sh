@@ -31,6 +31,8 @@ BROADCAST=$(jq --raw-output ".broadcast" $CONFIG_PATH)
 INTERFACE=$(jq --raw-output ".interface" $CONFIG_PATH)
 INTERNET_IF=$(jq --raw-output ".internet_interface" $CONFIG_PATH)
 ALLOW_INTERNET=$(jq --raw-output ".allow_internet" $CONFIG_PATH)
+ALLOW_MAC_ADDRESSES=$(jq --raw-output '.allow_mac_addresses | join(" ")' $CONFIG_PATH)
+DENY_MAC_ADDRESSES=$(jq --raw-output '.deny_mac_addresses | join(" ")' $CONFIG_PATH)
 HIDE_SSID=$(jq --raw-output ".hide_ssid" $CONFIG_PATH)
 
 DHCP_SERVER=$(jq --raw-output ".dhcp_enable" $CONFIG_PATH)
@@ -107,6 +109,42 @@ echo "" >> ${HCONFIG}
 if test ${HIDE_SSID} = true; then
     echo "Hidding SSID"
     echo "ignore_broadcast_ssid=1" >> ${HCONFIG}
+fi
+
+### MAC address filtering
+## Allow is more restrictive, so we prioritise that and set
+## macaddr_acl to 1, and add allowed MAC addresses to hostapd.allow
+if [ ${#ALLOW_MAC_ADDRESSES} -ge 1 ]; then
+    logger "Add to hostapd.conf: macaddr_acl=1" 1
+    echo "macaddr_acl=1"$'\n' >> /hostapd.conf
+    ALLOWED=($ALLOW_MAC_ADDRESSES)
+    logger "# Setup hostapd.allow:" 1
+    logger "Allowed MAC addresses:" 0
+    for mac in "${ALLOWED[@]}"; do
+        echo "$mac"$'\n' >> /hostapd.allow
+        logger "$mac" 0
+    done
+    logger "Add to hostapd.conf: accept_mac_file=/hostapd.allow" 1
+    echo "accept_mac_file=/hostapd.allow"$'\n' >> /hostapd.conf
+## else set macaddr_acl to 0, and add denied MAC addresses to hostapd.deny
+    else
+        if [ ${#DENY_MAC_ADDRESSES} -ge 1 ]; then
+            logger "Add to hostapd.conf: macaddr_acl=0" 1
+            echo "macaddr_acl=0"$'\n' >> /hostapd.conf
+            DENIED=($DENY_MAC_ADDRESSES)
+            logger "Denied MAC addresses:" 0
+            for mac in "${DENIED[@]}"; do
+                echo "$mac"$'\n' >> /hostapd.deny
+                logger "$mac" 0
+            done
+            logger "Add to hostapd.conf: accept_mac_file=/hostapd.deny" 1
+            echo "deny_mac_file=/hostapd.deny"$'\n' >> /hostapd.conf
+## else set macaddr_acl to 0, with blank allow and deny files
+            else
+                logger "Add to hostapd.conf: macaddr_acl=0" 1
+                echo "macaddr_acl=0"$'\n' >> /hostapd.conf
+        fi
+
 fi
 
 # Setup interface
